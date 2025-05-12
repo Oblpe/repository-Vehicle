@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import vehicleIconUrl from '../assets/images/car.png'; // Adjust path as needed
-import startIconUrl from '../assets/images/placeholder.png'; // Adjust path as needed
-import endIconUrl from '../assets/images/destination.png'; // Adjust path as needed
+import vehicleIconUrl from '../assets/images/car.png';
+import startIconUrl from '../assets/images/placeholder.png';
+import endIconUrl from '../assets/images/destination.png';
 
-// Component to fit the map to the route bounds
+// 地图自动适应轨迹范围组件
 const FitBounds = ({ route }) => {
   const map = useMap();
   useEffect(() => {
@@ -16,6 +16,29 @@ const FitBounds = ({ route }) => {
     }
   }, [route, map]);
   return null;
+};
+
+// 计算角度：将正东为0°转换为正北为0°，并使旋转方向为顺时针
+const calculateAngle = (start, end) => {
+  const dx = end[1] - start[1];
+  const dy = end[0] - start[0];
+  const radians = Math.atan2(dy, dx);
+  const degrees = radians * (180 / Math.PI);
+  const adjusted = (90 - degrees + 360) % 360; // 转换为以北为0° 顺时针方向
+  return adjusted;
+};
+
+// 创建带旋转角度的图标
+const createRotatedVehicleIcon = (iconUrl, angle) => {
+  return L.divIcon({
+    html: `
+      <div style="width: 40px; height: 40px; transform: rotate(${angle}deg); transition: transform 0.5s linear;">
+        <img src="${iconUrl}" style="width: 100%; height: 100%;" />
+      </div>
+    `,
+    iconSize: [40, 40],
+    className: '',
+  });
 };
 
 const VehicleMap = () => {
@@ -43,15 +66,11 @@ const VehicleMap = () => {
     [31.537697, 104.702208],
   ];
 
+  const initialAngle = calculateAngle(route[0], route[1]);
   const [vehiclePosition, setVehiclePosition] = useState(route[0]);
+  const [vehicleAngle, setVehicleAngle] = useState(initialAngle);
   const [traveledPath, setTraveledPath] = useState([route[0]]);
   const [routeIndex, setRouteIndex] = useState(0);
-
-  const calculateAngle = (start, end) => {
-    const dx = end[1] - start[1];
-    const dy = end[0] - start[0];
-    return Math.atan2(dy, dx) * (180 / Math.PI);
-  };
 
   useEffect(() => {
     if (route.length === 0) return;
@@ -59,15 +78,18 @@ const VehicleMap = () => {
     const interval = setInterval(() => {
       setRouteIndex((prevIndex) => {
         const nextIndex = prevIndex + 1;
-
         if (nextIndex >= route.length) {
           clearInterval(interval);
           return prevIndex;
         }
 
         const newPosition = route[nextIndex];
+        const nextTarget = route[nextIndex + 1] || newPosition;
+        const newAngle = calculateAngle(newPosition, nextTarget);
+
         setVehiclePosition(newPosition);
         setTraveledPath((prevPath) => [...prevPath, newPosition]);
+        setVehicleAngle(newAngle);
         return nextIndex;
       });
     }, 2000);
@@ -77,20 +99,7 @@ const VehicleMap = () => {
 
   const startPoint = route[0];
   const endPoint = route[route.length - 1];
-  const nextPoint = route[Math.min(routeIndex + 1, route.length - 1)];
-  const angle = calculateAngle(vehiclePosition, nextPoint);
-
-  // Function to create a rotated icon
-  const createRotatedIcon = (iconUrl) => {
-    return new L.Icon({
-      iconUrl: iconUrl,
-      iconSize: [40, 40],
-      iconAnchor: [20, 20],
-      className: `leaflet-icon`,
-    });
-  };
-
-  const vehicleIcon = createRotatedIcon(vehicleIconUrl);
+  const vehicleIcon = createRotatedVehicleIcon(vehicleIconUrl, vehicleAngle);
 
   return (
     <div className="h-screen w-full flex flex-col items-center bg-gray-200 p-8">
@@ -99,20 +108,13 @@ const VehicleMap = () => {
         <MapContainer center={vehiclePosition} zoom={14} scrollWheelZoom={false} className="w-full h-full">
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution=''
+            attribution=""
           />
           <FitBounds route={route} />
           <Polyline positions={route} color="green" weight={4} />
           <Polyline positions={traveledPath} color="blue" weight={5} />
-          {/* Car marker */}
-          <Marker
-            position={vehiclePosition}
-            icon={vehicleIcon}
-            iconOptions={{ style: { transform: `rotate(${angle}deg)`, transformOrigin: 'center center' } }}
-          />
-          {/* Starting point marker */}
+          <Marker position={vehiclePosition} icon={vehicleIcon} />
           <Marker position={startPoint} icon={L.icon({ iconUrl: startIconUrl, iconSize: [30, 30] })} />
-          {/* Destination point marker */}
           <Marker position={endPoint} icon={L.icon({ iconUrl: endIconUrl, iconSize: [30, 30] })} />
         </MapContainer>
       </div>
