@@ -85,7 +85,7 @@ const VehicleMap = () => {
         onClick={startSimulation}
         disabled={isRunning || route.length < 2}
       >
-        {isRunning ? 'Running...' : 'Start Simulation'}
+        {isRunning ? '运行...' : '开始模拟'}
       </button>
 
       <div className="w-full h-96 rounded shadow overflow-hidden">
