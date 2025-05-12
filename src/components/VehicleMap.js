@@ -1,121 +1,105 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Polyline, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import vehicleIconUrl from '../assets/images/car.png';
 import startIconUrl from '../assets/images/placeholder.png';
 import endIconUrl from '../assets/images/destination.png';
 
-// 地图自动适应轨迹范围组件
-const FitBounds = ({ route }) => {
-  const map = useMap();
-  useEffect(() => {
-    if (route.length > 0) {
-      const bounds = L.latLngBounds(route);
-      map.fitBounds(bounds);
-    }
-  }, [route, map]);
-  return null;
-};
-
-// 计算角度：将正东为0°转换为正北为0°，并使旋转方向为顺时针
 const calculateAngle = (start, end) => {
   const dx = end[1] - start[1];
   const dy = end[0] - start[0];
   const radians = Math.atan2(dy, dx);
   const degrees = radians * (180 / Math.PI);
-  const adjusted = (90 - degrees + 360) % 360; // 转换为以北为0° 顺时针方向
-  return adjusted;
+  return (90 - degrees + 360) % 360;
 };
 
-// 创建带旋转角度的图标
 const createRotatedVehicleIcon = (iconUrl, angle) => {
   return L.divIcon({
-    html: `
-      <div style="width: 40px; height: 40px; transform: rotate(${angle}deg); transition: transform 0.5s linear;">
-        <img src="${iconUrl}" style="width: 100%; height: 100%;" />
-      </div>
-    `,
+    html: `<div style="width: 40px; height: 40px; transform: rotate(${angle}deg); transition: transform 0.5s linear;">
+      <img src="${iconUrl}" style="width: 100%; height: 100%;" />
+    </div>`,
     iconSize: [40, 40],
     className: '',
   });
 };
 
+// ✅ 组件：允许点击地图添加路线点
+const RouteBuilder = ({ onAddPoint }) => {
+  useMapEvents({
+    click(e) {
+      onAddPoint([e.latlng.lat, e.latlng.lng]);
+    },
+  });
+  return null;
+};
+
 const VehicleMap = () => {
-  const route = [
-    [31.537500, 104.699230],
-    [31.537700, 104.699240],
-    [31.537900, 104.699250],
-    [31.538300, 104.699270],
-    [31.538600, 104.699285],
-    [31.538900, 104.699300],
-    [31.539200, 104.699330],
-    [31.539200, 104.699530],
-    [31.539180, 104.699830],
-    [31.539170, 104.700030],
-    [31.539158, 104.700330],
-    [31.539145, 104.700630],
-    [31.539133, 104.700930],
-    [31.539123, 104.701330],
-    [31.539113, 104.701730],
-    [31.539100, 104.702030],
-    [31.539097, 104.702260],
-    [31.538797, 104.702240],
-    [31.538497, 104.702230],
-    [31.538197, 104.702220],
-    [31.537697, 104.702208],
-  ];
-
-  const initialAngle = calculateAngle(route[0], route[1]);
-  const [vehiclePosition, setVehiclePosition] = useState(route[0]);
-  const [vehicleAngle, setVehicleAngle] = useState(initialAngle);
-  const [traveledPath, setTraveledPath] = useState([route[0]]);
+  const [route, setRoute] = useState([]);
+  const [vehiclePosition, setVehiclePosition] = useState(null);
+  const [vehicleAngle, setVehicleAngle] = useState(0);
+  const [traveledPath, setTraveledPath] = useState([]);
   const [routeIndex, setRouteIndex] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
+  const intervalRef = useRef(null);
 
-  useEffect(() => {
-    if (route.length === 0) return;
+  const handleAddPoint = (point) => {
+    setRoute((prev) => [...prev, point]);
+  };
 
-    const interval = setInterval(() => {
+  const startSimulation = () => {
+    if (route.length < 2) return;
+
+    setVehiclePosition(route[0]);
+    setTraveledPath([route[0]]);
+    setRouteIndex(0);
+    setIsRunning(true);
+
+    intervalRef.current = setInterval(() => {
       setRouteIndex((prevIndex) => {
         const nextIndex = prevIndex + 1;
         if (nextIndex >= route.length) {
-          clearInterval(interval);
+          clearInterval(intervalRef.current);
+          setIsRunning(false);
           return prevIndex;
         }
-
         const newPosition = route[nextIndex];
-        const nextTarget = route[nextIndex + 1] || newPosition;
-        const newAngle = calculateAngle(newPosition, nextTarget);
-
+        const angle = calculateAngle(route[prevIndex], newPosition);
         setVehiclePosition(newPosition);
         setTraveledPath((prevPath) => [...prevPath, newPosition]);
-        setVehicleAngle(newAngle);
+        setVehicleAngle(angle);
         return nextIndex;
       });
     }, 2000);
+  };
 
-    return () => clearInterval(interval);
-  }, [route]);
-
-  const startPoint = route[0];
-  const endPoint = route[route.length - 1];
   const vehicleIcon = createRotatedVehicleIcon(vehicleIconUrl, vehicleAngle);
+  const startIcon = L.icon({ iconUrl: startIconUrl, iconSize: [30, 30] });
+  const endIcon = L.icon({ iconUrl: endIconUrl, iconSize: [30, 30] });
 
   return (
-    <div className="h-screen w-full flex flex-col items-center bg-gray-200 p-8">
-      <h1 className="text-3xl font-extrabold mb-6 text-gray-800">Vehicle Movement Tracker</h1>
-      <div className="relative w-full h-96 rounded-2xl shadow-xl overflow-hidden bg-white border border-gray-300">
-        <MapContainer center={vehiclePosition} zoom={14} scrollWheelZoom={false} className="w-full h-full">
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution=""
-          />
-          <FitBounds route={route} />
+    <div className="h-screen w-full flex flex-col items-center bg-gray-100 p-6">
+      <h1 className="text-3xl font-bold mb-4 text-gray-800">Click to Set Route</h1>
+      <button
+        className="mb-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        onClick={startSimulation}
+        disabled={isRunning || route.length < 2}
+      >
+        {isRunning ? 'Running...' : 'Start Simulation'}
+      </button>
+
+      <div className="w-full h-96 rounded shadow overflow-hidden">
+        <MapContainer center={[31.538, 104.7]} zoom={15} scrollWheelZoom={true} className="w-full h-full">
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          <RouteBuilder onAddPoint={handleAddPoint} />
           <Polyline positions={route} color="green" weight={4} />
           <Polyline positions={traveledPath} color="blue" weight={5} />
-          <Marker position={vehiclePosition} icon={vehicleIcon} />
-          <Marker position={startPoint} icon={L.icon({ iconUrl: startIconUrl, iconSize: [30, 30] })} />
-          <Marker position={endPoint} icon={L.icon({ iconUrl: endIconUrl, iconSize: [30, 30] })} />
+          {route.map((point, index) => (
+            <Marker key={index} position={point} icon={L.divIcon({ html: `<div style="width:8px;height:8px;background:red;border-radius:50%;"></div>` })} />
+          ))}
+          {vehiclePosition && <Marker position={vehiclePosition} icon={vehicleIcon} />}
+          {route.length > 0 && <Marker position={route[0]} icon={startIcon} />}
+          {route.length > 1 && <Marker position={route[route.length - 1]} icon={endIcon} />}
         </MapContainer>
       </div>
     </div>
